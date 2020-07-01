@@ -1,0 +1,136 @@
+
+esphome:
+  name: esp32s_2
+  platform: ESP32
+  board: nodemcu-32s
+  includes:
+    - therm_utils.h
+
+<<: !include ../wifi.yaml
+
+captive_portal:
+logger:
+api:
+ota:
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+i2c:
+  sda: 22
+  scl: 23
+
+font:
+  - file: "BebasNeue-Regular.ttf"
+    id: large_font
+    size: 48
+  - file: "BebasNeue-Regular.ttf"
+    id: small_font
+    size: 12
+
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    lambda: |-
+      it.strftime(0, 0, id(small_font), "%H:%M:%S", id(sntp_time).now());
+      it.printf(126, 0, id(small_font), TextAlign::TOP_RIGHT , "%s", climate_action_to_string(id(test_climate).action));
+      it.printf(64, 32, id(large_font), TextAlign::CENTER , "%.1f°", _c_to_f(id(test_temperature).state));
+      char botline[32];
+      if (id(test_climate).mode == CLIMATE_MODE_AUTO) {
+          sprintf(botline, "AUTO %.1f - %.1f", _c_to_f(id(test_climate).target_temperature_low), _c_to_f(id(test_climate).target_temperature_high));
+      } else if (id(test_climate).mode == CLIMATE_MODE_COOL) {
+          sprintf(botline, "COOL TO %.1f", _c_to_f(id(test_climate).target_temperature_high));
+      } else if (id(test_climate).mode == CLIMATE_MODE_HEAT) {
+          sprintf(botline, "HEAT TO %.1f", _c_to_f(id(test_climate).target_temperature_low));
+      } else {
+          sprintf(botline, climate_mode_to_string(id(test_climate).mode));
+      }
+      it.printf(0, 58, id(small_font), botline);
+
+sensor:
+  - platform: dht
+    model: DHT22
+    pin: 27
+    temperature:
+      name: "Test Temperature"
+      id: "test_temperature"
+      unit_of_measurement: "°C"
+      filters:
+        - median:
+            window_size: 10
+            send_every: 6
+            send_first_at: 3
+    humidity:
+      name: "Test Humidity"
+      id: "test_humidity"
+      filters:
+        - median:
+            window_size: 10
+            send_every: 6
+            send_first_at: 3
+    update_interval: 10s
+
+switch:
+  - platform: gpio
+    id: "test_thermostat_heat_relay"
+    pin: 25
+  - platform: gpio
+    id: "test_thermostat_cool_relay"
+    pin: 26
+  - platform: gpio
+    id: "test_thermostat_fan_relay"
+    pin: 27
+
+binary_sensor:
+  - platform: gpio
+    id: "test_thermostat_mode_button"
+    pin:
+      number: 19
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - lambda: "_cycle_mode(id(test_climate));"
+  - platform: gpio
+    id: "test_thermostat_up_button"
+    pin:
+      number: 18
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - lambda: "_increment_target(id(test_climate), 0.5);"
+  - platform: gpio
+    id: "test_thermostat_down_button"
+    pin:
+      number: 17
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press:
+      then:
+        - lambda: "_increment_target(id(test_climate), -0.5);"
+
+climate:
+  - platform: thermostat
+    name: "Test Climate"
+    id: "test_climate"
+    sensor: "test_temperature"
+   
+    default_target_temperature_low: 63 °F
+    default_target_temperature_high: 74 °F
+
+    hysteresis: 0.5 °C
+
+    heat_action:
+      - switch.turn_on: test_thermostat_heat_relay 
+      - switch.turn_on: test_thermostat_fan_relay 
+    idle_action:
+      - switch.turn_off: test_thermostat_heat_relay
+      - switch.turn_off: test_thermostat_cool_relay
+      - switch.turn_off: test_thermostat_fan_relay 
+    cool_action:
+      - switch.turn_on: test_thermostat_cool_relay
+      - switch.turn_on: test_thermostat_fan_relay 
+
